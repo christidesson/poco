@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PoCo</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --muted:#666; --card:#f2f2f7; --line:#e5e5ea; --accent:#e53935; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --fg:#fff; --muted:#aaa; --card:#1c1c1e; --line:#2c2c2e; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
+  header { padding:20px 16px 8px; }
+  h1 { margin:0; font-size:1.5rem; }
+  h2 { margin:24px 16px 4px; font-size:1.15rem; }
+  .sub { color:var(--muted); margin:2px 0 0; font-size:.9rem; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; padding:12px 16px; }
+  .card { background:var(--card); border-radius:14px; padding:10px; display:flex; flex-direction:column; gap:4px; }
+  .card img { width:100%; aspect-ratio:0.716; object-fit:contain; border-radius:8px; background:var(--line); }
+  .name { font-weight:700; font-size:.9rem; }
+  .meta { color:var(--muted); font-size:.78rem; }
+  .price { color:var(--accent); font-weight:700; }
+  a.btn { display:inline-block; margin-top:6px; padding:8px 12px; border-radius:10px; background:var(--accent); color:#fff; text-decoration:none; font-weight:600; font-size:.85rem; text-align:center; }
+  .wa { background:#25d366; }
+  footer { padding:24px 16px 40px; color:var(--muted); font-size:.8rem; }
+  #msg { padding:24px 16px; }
+</style>
+</head>
+<body>
+<header><h1 id="title">PoCo</h1><p class="sub" id="subtitle"></p></header>
+<div id="msg">Cargando…</div>
+<main id="content"></main>
+<footer>Hecho con PoCo</footer>
+
+<script>
+// ---- Edita estas dos líneas con los datos de tu proyecto de Supabase ----
+const SUPABASE_URL = "https://TU-PROYECTO.supabase.co";
+const SUPABASE_ANON_KEY = "TU_LLAVE_PUBLICA_ANON";
+// -------------------------------------------------------------------------
+
+const params = new URLSearchParams(location.search);
+const content = document.getElementById("content");
+const msg = document.getElementById("msg");
+
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined && text !== null) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+
+async function get(path) {
+  // La llave nueva (sb_publishable_...) va solo en "apikey"; la vieja (eyJ...) también en "Authorization".
+  const headers = { apikey: SUPABASE_ANON_KEY };
+  if (SUPABASE_ANON_KEY.startsWith("eyJ")) headers.Authorization = "Bearer " + SUPABASE_ANON_KEY;
+  const r = await fetch(SUPABASE_URL + "/rest/v1/" + path, { headers });
+  if (!r.ok) throw new Error("No se pudo cargar (" + r.status + ")");
+  return r.json();
+}
+
+function mxn(n) { return "MX$ " + Number(n).toLocaleString("es-MX", { maximumFractionDigits: 0 }); }
+function usd(n) { return "US$ " + Number(n).toFixed(2); }
+function safeImg(u) { return typeof u === "string" && u.startsWith("https://") ? u : ""; }
+
+function cardView(c, whatsapp) {
+  const box = el("div", null, "card");
+  const src = safeImg(c.image_url);
+  if (src) { const i = el("img"); i.src = src; i.alt = c.name; i.loading = "lazy"; box.appendChild(i); }
+  box.appendChild(el("div", c.name, "name"));
+  const meta = [c.set_name, c.condition, c.grade_company ? (c.grade_company + " " + (c.grade ?? "")) : null]
+    .filter(Boolean).join(" · ");
+  if (meta) box.appendChild(el("div", meta, "meta"));
+  const price = c.asking_mxn != null ? mxn(c.asking_mxn) : (c.usd != null ? usd(c.usd) : null);
+  if (price) box.appendChild(el("div", price, "price"));
+  if (whatsapp && c.asking_mxn !== undefined) {
+    const a = el("a", "Me interesa", "btn wa");
+    a.href = "https://wa.me/" + whatsapp + "?text=" + encodeURIComponent("Hola, me interesa: " + c.name);
+    a.target = "_blank"; a.rel = "noopener";
+    box.appendChild(a);
+  }
+  return box;
+}
+
+async function showList(id) {
+  const lists = await get("lists?id=eq." + encodeURIComponent(id) + "&select=*,profiles(username,display_name,contact_whatsapp)");
+  if (!lists.length) throw new Error("Esta lista ya no está disponible.");
+  const list = lists[0];
+  const owner = list.profiles || {};
+  const items = await get("list_items?list_id=eq." + encodeURIComponent(id) + "&order=position");
+  document.title = list.name + " · PoCo";
+  document.getElementById("title").textContent = list.name;
+  const how = list.kind === "buy"
+    ? (list.accepts_trades ? "Ofrece intercambios o dinero" : "Paga en dinero")
+    : (list.accepts_trades ? "Acepta intercambios o dinero" : "Solo dinero");
+  document.getElementById("subtitle").textContent = (owner.display_name || "") + " · " + how + " · " + items.length + " cartas";
+  const grid = el("div", null, "grid");
+  items.forEach(c => grid.appendChild(cardView(c, list.kind === "sell" ? owner.contact_whatsapp : null)));
+  content.appendChild(grid);
+  msg.remove();
+}
+
+async function showProfile(username) {
+  const ps = await get("profiles?username=eq." + encodeURIComponent(username) + "&select=*");
+  if (!ps.length) throw new Error("No encontré a ese usuario.");
+  const p = ps[0];
+  document.title = p.display_name + " · PoCo";
+  document.getElementById("title").textContent = p.display_name;
+  document.getElementById("subtitle").textContent = "@" + p.username;
+  const cards = await get("profile_cards?owner_id=eq." + p.id + "&order=section,position");
+  const lists = await get("lists?owner_id=eq." + p.id + "&order=updated_at.desc");
+  const bySection = {};
+  cards.forEach(c => (bySection[c.section] = bySection[c.section] || []).push(c));
+  const label = s => s === "top" ? "Sus cartas más valiosas" : s === "chosen" ? "Cartas destacadas" : s.replace(/^place:/, "");
+  for (const s of Object.keys(bySection)) {
+    content.appendChild(el("h2", label(s)));
+    const grid = el("div", null, "grid");
+    bySection[s].forEach(c => grid.appendChild(cardView(c, null)));
+    content.appendChild(grid);
+  }
+  for (const l of lists) {
+    const items = await get("list_items?list_id=eq." + l.id + "&order=position");
+    content.appendChild(el("h2", (l.kind === "buy" ? "Busca: " : "En venta: ") + l.name));
+    const grid = el("div", null, "grid");
+    items.forEach(c => grid.appendChild(cardView(c, l.kind === "sell" ? p.contact_whatsapp : null)));
+    content.appendChild(grid);
+  }
+  msg.remove();
+}
+
+(async () => {
+  try {
+    if (params.get("id")) await showList(params.get("id"));
+    else if (params.get("u")) await showProfile(params.get("u"));
+    else msg.textContent = "Falta el enlace de la lista.";
+  } catch (e) {
+    msg.textContent = e.message || "No se pudo cargar.";
+  }
+})();
+</script>
+</body>
+</html>
