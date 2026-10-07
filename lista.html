@@ -61,7 +61,7 @@ function mxn(n) { return "MX$ " + Number(n).toLocaleString("es-MX", { maximumFra
 function usd(n) { return "US$ " + Number(n).toFixed(2); }
 function safeImg(u) { return typeof u === "string" && u.startsWith("https://") ? u : ""; }
 
-function cardView(c, whatsapp) {
+function cardView(c) {
   const box = el("div", null, "card");
   const src = safeImg(c.image_url);
   if (src) { const i = el("img"); i.src = src; i.alt = c.name; i.loading = "lazy"; box.appendChild(i); }
@@ -71,17 +71,11 @@ function cardView(c, whatsapp) {
   if (meta) box.appendChild(el("div", meta, "meta"));
   const price = c.asking_mxn != null ? mxn(c.asking_mxn) : (c.usd != null ? usd(c.usd) : null);
   if (price) box.appendChild(el("div", price, "price"));
-  if (whatsapp && c.asking_mxn !== undefined) {
-    const a = el("a", "Me interesa", "btn wa");
-    a.href = "https://wa.me/" + whatsapp + "?text=" + encodeURIComponent("Hola, me interesa: " + c.name);
-    a.target = "_blank"; a.rel = "noopener";
-    box.appendChild(a);
-  }
   return box;
 }
 
 async function showList(id) {
-  const lists = await get("lists?id=eq." + encodeURIComponent(id) + "&select=*,profiles(username,display_name,contact_whatsapp)");
+  const lists = await get("lists?id=eq." + encodeURIComponent(id) + "&select=*,profiles(username,display_name)");
   if (!lists.length) throw new Error("Esta lista ya no está disponible.");
   const list = lists[0];
   const owner = list.profiles || {};
@@ -93,7 +87,7 @@ async function showList(id) {
     : (list.accepts_trades ? "Acepta intercambios o dinero" : "Solo dinero");
   document.getElementById("subtitle").textContent = (owner.display_name || "") + " · " + how + " · " + items.length + " cartas";
   const grid = el("div", null, "grid");
-  items.forEach(c => grid.appendChild(cardView(c, list.kind === "sell" ? owner.contact_whatsapp : null)));
+  items.forEach(c => grid.appendChild(cardView(c)));
   content.appendChild(grid);
   msg.remove();
 }
@@ -113,14 +107,14 @@ async function showProfile(username) {
   for (const s of Object.keys(bySection)) {
     content.appendChild(el("h2", label(s)));
     const grid = el("div", null, "grid");
-    bySection[s].forEach(c => grid.appendChild(cardView(c, null)));
+    bySection[s].forEach(c => grid.appendChild(cardView(c)));
     content.appendChild(grid);
   }
   for (const l of lists) {
     const items = await get("list_items?list_id=eq." + l.id + "&order=position");
     content.appendChild(el("h2", (l.kind === "buy" ? "Busca: " : "En venta: ") + l.name));
     const grid = el("div", null, "grid");
-    items.forEach(c => grid.appendChild(cardView(c, l.kind === "sell" ? p.contact_whatsapp : null)));
+    items.forEach(c => grid.appendChild(cardView(c)));
     content.appendChild(grid);
   }
   msg.remove();
